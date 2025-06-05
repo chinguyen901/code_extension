@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Profile Screenshot",
+  "version": "1.0",
+  "description": "Automatically takes screenshots of your profile page at regular intervals.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "scripting",
+    "downloads",
+    "notifications",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Employee Monitor"
+  }
+}
