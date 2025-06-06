@@ -3,6 +3,9 @@ let isPaused = false;
 let send_Sudden = false;
 let time_focus = 0;
 const time_limit = 600;
+let isTabActive = true; // Biến theo dõi trạng thái tab có active hay không
+let wasTabActive = true;  // Biến lưu trạng thái tab trước đó
+let distractionCount = 0;
 
 const API_BASE_URL = "https://employeeschedule-production.up.railway.app"; // 🔁 Thay bằng URL thật
 
@@ -80,6 +83,25 @@ async function sendLogSudden() {
 }
 
 async function handleScreenshot() {
+  const active = await checkTabActive();
+  if (wasTabActive && active) {
+    distractionCount = 1;  // reset đếm và bắt đầu từ 1
+    sendDistractionLog("active");
+  }
+
+  // Nếu tab không active thì gửi log "inactive"
+  if (!active) {
+    distractionCount++;
+    sendDistractionLog("noactive");
+    wasTabActive = false;
+    return; // không chụp ảnh
+  }
+
+  // Tab active, reset đếm distraction
+  distractionCount = 0;
+
+  wasTabActive = true;
+
   chrome.tabs.captureVisibleTab({ format: "png" }, async (dataUrl) => {
     if (chrome.runtime.lastError || !dataUrl) return;
 
@@ -220,3 +242,50 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return false;
   }
 });
+
+
+// Kiểm tra tab hiện tại có active (focus) hay không
+function checkTabActive() {
+  return new Promise((resolve) => {
+    chrome.windows.getCurrent({ populate: true }, (window) => {
+      if (!window) return resolve(false);
+      const activeTab = window.tabs.find(tab => tab.active);
+      if (!activeTab) return resolve(false);
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs || tabs.length === 0) return resolve(false);
+        // Kiểm tra xem tab có focus window không (window.focused)
+        chrome.windows.get(window.id, (win) => {
+          resolve(win.focused);
+        });
+      });
+    });
+  });
+}
+
+async function sendDistractionLog(status) {
+  distractionCount++;
+  const accountId = await getLocalStorage("account_id");
+  const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const eventStatus = {
+    "active": "ACTIVE",
+    "noactive": "NO ACTIVE ON TAB"
+  };
+  if (!accountId) return;
+
+  const payload = {
+    account_id: accountId,
+    status:eventStatus[status],  // "inactive" hoặc "active"
+    note: distractionCount,
+    created_at: timestamp,
+  };
+
+  try {
+    await fetch(`${API_BASE_URL}/log-distraction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.error("Error logging distraction:", err);
+  }
+}

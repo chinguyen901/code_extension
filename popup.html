@@ -1,141 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
- <meta charset="UTF-8" />
- <title>Employee Schedule</title>
- <link rel="stylesheet" href="style.css" />
- <style>
-   body {
-     width: 400px; /* Tăng chiều rộng popup */
-     min-height: 300px;
-     margin: 0;
-     padding: 20px;
-     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-     background-color: #f4f6fc;
-     box-sizing: border-box;
-   }
- 
-   h2 {
-     text-align: center;
-     color: #2c3e50;
-     margin-bottom: 25px;
-     font-size: 24px;
-   }
- 
-   #login-section, #user-info, #actions, #controls {
-     background-color: #ffffff;
-     padding: 20px;
-     border-radius: 8px;
-     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-     margin-bottom: 20px;
-   }
- 
-   input[type="email"] {
-     width: 100%;
-     padding: 12px;
-     font-size: 16px;
-     border: 1.5px solid #ccc;
-     border-radius: 6px;
-     margin-bottom: 15px;
-     box-sizing: border-box;
-   }
- 
-   input[type="email"]:focus {
-     border-color: #3498db;
-     outline: none;
-   }
- 
-   input[type="password"] {
-     width: 100%;
-     padding: 12px;
-     font-size: 16px;
-     border: 1.5px solid #ccc;
-     border-radius: 6px;
-     margin-bottom: 15px;
-     box-sizing: border-box;
-   }
- 
-   input[type="password"]:focus {
-     border-color: #3498db;
-     outline: none;
-   }
- 
-   button {
-     width: 100%;
-     padding: 12px;
-     font-size: 16px;
-     background-color: #3498db;
-     color: white;
-     border: none;
-     border-radius: 6px;
-     cursor: pointer;
-     transition: background-color 0.3s ease;
-   }
- 
-   button:hover {
-     background-color: #2980b9;
-   }
- 
-   #actions {
-     display: flex;
-     flex-wrap: wrap;
-     gap: 10px;
-     justify-content: space-between;
-   }
- 
-   #actions button:not(#logout-button) {
-     flex: 1 1 45%;
-   }
- 
-   #logout-button {
-     background-color: #e74c3c;
-   }
- 
-   #logout-button:hover {
-     background-color: #c0392b;
-   }
- 
-   #employee-name {
-     font-size: 20px;
-     font-weight: bold;
-     color: #2c3e50;
-     text-align: center;
-   }
- 
-   #controls p {
-     font-size: 14px;
-     color: #555;
-     text-align: center;
-   }
- </style>
- <script src="sweetalert2.all.min.js"></script>
+  <meta charset="UTF-8" />
+  <title>Employee Schedule</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="sweetalert2.all.min.js"></script>
 </head>
 <body>
- <h2>Employee Schedule</h2>
- 
- <div id="login-section">
-   <input type="text" id="employee-username" placeholder="Enter your username" >
-   <input type="text" id="employee-password" placeholder="Enter your password" />
-   <button id="login-button">Login</button>
- </div>
- 
- <div id="user-info" style="display: none;">
-   <p id="employee-name"></p>
- </div>
- 
- <div id="actions" style="display: none;">
-   <button data-event="check-in-again">Check In Again</button>
-   <button data-event="check-in">Check In</button>
-   <button data-event="check-out">Check Out</button>
-   <button data-event="break">Break</button>
-   <button data-event="break-done">Break Done</button>
-   <button id="logout-button">Logout</button>
- </div>
- 
- <div id="controls" style="display: none;">
-   <p>Auto screenshot every 20 seconds after login</p>
- </div>
- <script src="sweetalert2.all.min.js"></script>
- <script src="popup.js"></script>
+
+  <!-- Logo + Title -->
+  <div class="logo-container">
+    <img src="logo.png" alt="Logo" />
+  </div>
+  <h2>LOGIN TCGO</h2>
+
+  <!-- Login -->
+  <div id="login-section">
+    <input type="text" id="employee-username" placeholder="Enter your username" autocomplete="off" />
+    <input type="password" id="employee-password" placeholder="Enter your password" autocomplete="off" />
+    <button id="login-button">Login</button>
+  </div>
+
+  <!-- Logged in user info -->
+  <div id="user-info" style="display:none;">
+    <p id="employee-name"></p>
+  </div>
+
+  <!-- Actions -->
+  <div id="actions" style="display:none;">
+    <div class="row">
+      <button data-event="check-in-again" class="full">Check In Again</button>
+    </div>
+    <div class="row">
+      <button data-event="check-in" class="half">Check In</button>
+      <button data-event="check-out" class="half">Check Out</button>
+    </div>
+    <div class="row">
+      <button data-event="break" class="half">Break</button>
+      <button data-event="break-done" class="half">Break Done</button>
+    </div>
+    <div class="row">
+      <button id="logout-button" class="full logout">Logout</button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls" style="display:none;">
+    <p>Auto screenshot every 20 seconds after login</p>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>

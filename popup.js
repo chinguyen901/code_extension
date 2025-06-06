@@ -140,6 +140,7 @@ window.addEventListener("DOMContentLoaded", () => {
     userInfo.style.display = "block";
     controls.style.display = "block";
     actionsDiv.style.display = "block";
+    document.body.classList.add("logged-in");
   }
 
   function updateButtonStates(state) {

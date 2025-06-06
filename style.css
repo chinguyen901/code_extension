@@ -1,0 +1,133 @@
+/* ========== CƠ BẢN ========== */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 400px;
+  min-height: 400px;
+  margin: 0;
+  padding: 20px 30px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #d1c4e9, #b3e5fc); /* nền tím-xanh nhạt */
+  color: #2c3e50; /* chữ đen đậm */
+  user-select: none;
+}
+
+/* ========== LOGO + TIÊU ĐỀ ========== */
+.logo-container {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.logo-container img {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+h2 {
+  text-align: center;
+  margin: 10px 0 25px;
+  font-weight: 700;
+  font-size: 22px;
+}
+
+/* ========== KHUNG CHÍNH ========== */
+#login-section,
+#user-info,
+#actions,
+#controls {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+/* ========== INPUT ========== */
+input[type="text"],
+input[type="password"] {
+  width: 100%;
+  padding: 12px 14px;
+  margin-bottom: 15px;
+  border: 1.5px solid #ccc;
+  border-radius: 6px;
+  font-size: 16px;
+  transition: border-color 0.3s;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 5px #3498dbaa;
+}
+
+/* ========== BUTTON ========== */
+button {
+  width: 100%;
+  padding: 12px 0;
+  border: none;
+  border-radius: 6px;
+  background-color: #3498db;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  user-select: none;
+}
+
+button:hover:not(:disabled) {
+  background-color: #2980b9;
+}
+
+button:disabled {
+  background-color: #a2c4e8;
+  cursor: not-allowed;
+}
+
+/* ========== THÔNG TIN NGƯỜI DÙNG ========== */
+#employee-name {
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+  margin: 0;
+  padding-bottom: 10px;
+}
+
+/* ========== BỐ CỤC NÚT HÀNH ĐỘNG ========== */
+#actions .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+#actions button.full {
+  flex: 1 1 100%;
+}
+
+#actions button.half {
+  flex: 1 1 48%;
+}
+
+/* Nút Logout riêng màu đỏ */
+#logout-button.logout {
+  background-color: #e74c3c;
+}
+
+#logout-button.logout:hover {
+  background-color: #c0392b;
+}
+
+/* ========== THÔNG TIN BỔ SUNG ========== */
+#controls p {
+  text-align: center;
+  color: #555;
+  font-size: 14px;
+  margin: 0;
+}
