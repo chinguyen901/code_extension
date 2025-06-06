@@ -47,13 +47,13 @@ async function sendLogSudden() {
 
   const payload = {
     account_id: accountId,   // Sử dụng account_id từ localStorage
-    status: "no activity",   // Tương ứng với tình trạng sự cố
-    reason: "No activity detected", // Lý do sự cố
+    status: "SUDDEN",   // Tương ứng với tình trạng sự cố
+    reason: "NO ACTIVE Longtime client to Server", // Lý do sự cố
     created_at: timestamp,  // Ngày tạo sự kiện
   };
 
   try {
-    const res = await fetch(`${API_BASE_URL}/log-event`, {
+    const res = await fetch(`${API_BASE_URL}/log-incident`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -66,7 +66,7 @@ async function sendLogSudden() {
         status: "checkout",  // Đăng xuất do không hoạt động
         created_at: timestamp,
       };
-      await fetch(`${API_BASE_URL}/log-session-out`, {
+      await fetch(`${API_BASE_URL}/log-work`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(sessionData),
@@ -160,8 +160,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
-    case "logEvent":
-      fetch(`${API_BASE_URL}/log-event`, {
+    case "logIncident":
+      fetch(`${API_BASE_URL}/log-incident`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(msg.data),
@@ -171,8 +171,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch((err) => sendResponse({ success: false, error: err.message }));
       return true;
 
-    case "logSession":
-      fetch(`${API_BASE_URL}/log-session`, {
+    case "logBreak":
+      fetch(`${API_BASE_URL}/log-break`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(msg.data),
+      })
+        .then((res) => res.json())
+        .then((data) => sendResponse({ success: data.success, error: data.error || null }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+      return true;
+    
+    case "logWork":
+      fetch(`${API_BASE_URL}/log-work`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(msg.data),
@@ -182,8 +193,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch((err) => sendResponse({ success: false, error: err.message }));
       return true;
 
-    case "logSession_out":
-      fetch(`${API_BASE_URL}/log-session-out`, {
+    case "logLoginout":
+      fetch(`${API_BASE_URL}/log-loginout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(msg.data),
