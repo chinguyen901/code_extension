@@ -32,22 +32,18 @@ window.addEventListener("DOMContentLoaded", () => {
     userInfo.insertAdjacentElement('afterend', actionsDiv);
   }
 
-  // Load trạng thái lưu trữ cũ nếu có
   chrome.storage.local.get(["employeeName", "currentState", "account_id"], (result) => {
-    const employeeName = result.employeeName;
-    const currentState = result.currentState || "checked-out";
-    const accountId = result.account_id; // Sử dụng account_id để xác định người dùng
-
-    if (employeeName && accountId) {
+    const { employeeName, currentState = "checked-out", account_id } = result;
+    if (employeeName && account_id) {
       showLoggedInUI(employeeName, loginSection, userInfo, controls, actionsDiv);
       updateButtonStates(currentState);
     }
   });
 
-  // Gán sự kiện cho các nút hành động
   actionsDiv.querySelectorAll("button").forEach(button => {
     button.addEventListener("click", async () => {
       const eventType = button.getAttribute("data-event");
+
       if (eventType === "check-in-again") {
         const { value: reason } = await Swal.fire({
           title: "Lý do vào làm lại",
@@ -68,7 +64,6 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Xử lý nút Login
   document.getElementById("login-button").addEventListener("click", () => {
     const username = document.getElementById("employee-username").value.trim();
     const password = document.getElementById("employee-password").value.trim();
@@ -78,13 +73,13 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    chrome.runtime.sendMessage({ command: "login", username: username, password: password }, (data) => {
+    chrome.runtime.sendMessage({ command: "login", username, password }, (data) => {
       if (data.success) {
         const sessionId = "SS" + Date.now();
         chrome.storage.local.set({
-          account_id: data.id, // Lưu account_id thay vì employeeId
+          account_id: data.id,
           employeeName: data.name,
-          sessionId: sessionId,
+          sessionId,
           currentState: "checked-out"
         }, () => {
           showLoggedInUI(data.name, loginSection, userInfo, controls, actionsDiv);
@@ -96,10 +91,10 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // Xử lý nút Logout
   document.getElementById("logout-button").addEventListener("click", () => {
-    chrome.storage.local.get(["currentState"], async (result) => {
+    chrome.storage.local.get(["currentState", "account_id"], async (result) => {
       const currentState = result.currentState || "checked-out";
+      const accountId = result.account_id;
 
       if (currentState !== "checked-out") {
         await Swal.fire("Bạn cần Check Out trước khi đăng xuất.", "", "warning");
@@ -115,16 +110,30 @@ window.addEventListener("DOMContentLoaded", () => {
 
       if (!confirm.isConfirmed) return;
 
-      chrome.storage.local.clear(() => {
-        stopAutoScreenshot();
-        Swal.fire("Bạn đã đăng xuất thành công.", "", "success").then(() => {
-          location.reload();
-        });
+      const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+      chrome.runtime.sendMessage({
+        command: "logLoginout",
+        data: {
+          account_id: accountId,
+          status: "logout",
+          created_at: timestamp
+        }
+      }, (response) => {
+        if (response.success) {
+          chrome.storage.local.clear(() => {
+            stopAutoScreenshot();
+            Swal.fire("Bạn đã đăng xuất thành công.", "", "success").then(() => {
+              location.reload();
+            });
+          });
+        } else {
+          console.error("❌ Gửi log logout thất bại:", response.error);
+          Swal.fire("Lỗi khi gửi log logout.", "", "error");
+        }
       });
     });
   });
 
-  // Hiển thị UI sau khi đăng nhập thành công
   function showLoggedInUI(name, loginSection, userInfo, controls, actionsDiv) {
     document.getElementById("employee-name").innerText = `Hello, ${name}`;
     loginSection.style.display = "none";
@@ -133,7 +142,6 @@ window.addEventListener("DOMContentLoaded", () => {
     actionsDiv.style.display = "block";
   }
 
-  // Bật/tắt các nút dựa trên trạng thái hiện tại
   function updateButtonStates(state) {
     const buttons = actionsDiv.querySelectorAll("button");
     buttons.forEach(btn => btn.disabled = true);
@@ -156,27 +164,21 @@ window.addEventListener("DOMContentLoaded", () => {
     enable("check-in-again");
   }
 
-  // Kích hoạt nút theo tên sự kiện
   function enable(event) {
     const btn = actionsDiv.querySelector(`button[data-event="${event}"]`);
     if (btn) btn.disabled = false;
   }
 
-  // Bật/tắt nút Logout
   function setLogoutButtonEnabled(enabled) {
     const logoutBtn = document.getElementById("logout-button");
-    if (logoutBtn) {
-      logoutBtn.disabled = !enabled;
-    }
+    if (logoutBtn) logoutBtn.disabled = !enabled;
   }
 
-  // Bắt đầu tự chụp màn hình mỗi X giây
   function startAutoScreenshot(intervalSeconds) {
     if (screenshotIntervalId) clearInterval(screenshotIntervalId);
     chrome.runtime.sendMessage({ command: "start", interval: intervalSeconds });
   }
 
-  // Dừng tự chụp màn hình
   function stopAutoScreenshot() {
     if (screenshotIntervalId) {
       clearInterval(screenshotIntervalId);
@@ -185,12 +187,9 @@ window.addEventListener("DOMContentLoaded", () => {
     chrome.runtime.sendMessage({ command: "stop" });
   }
 
-  // Gửi log sự kiện (check-in, check-out, break, v.v.)
   function sendEventLog(eventType, reason = "") {
     chrome.storage.local.get(["account_id", "sessionId", "currentState"], (result) => {
-      const accountId = result.account_id; // Sử dụng account_id thay vì employeeId
-      const sessionId = result.sessionId;
-      const currentState = result.currentState || "checked-out";
+      const { account_id: accountId, sessionId, currentState = "checked-out" } = result;
 
       const disallowedMessages = {
         "check-in": "Bạn đã check-in rồi. Vui lòng check-out trước.",
@@ -212,37 +211,63 @@ window.addEventListener("DOMContentLoaded", () => {
       }
 
       const now = new Date();
-      const timestamp = now.getFullYear() + '-' +
-        String(now.getMonth() + 1).padStart(2, '0') + '-' +
-        String(now.getDate()).padStart(2, '0') + ' ' +
-        String(now.getHours()).padStart(2, '0') + ':' +
-        String(now.getMinutes()).padStart(2, '0') + ':' +
-        String(now.getSeconds()).padStart(2, '0');
+      const timestamp = now.toISOString().slice(0, 19).replace("T", " ");
 
-      const type = (["break", "break-done", "check-in-again"].includes(eventType)) ? reason : "";
-      const source = "user";
       const eventStatusMap = {
-        "check-in": "Vào ca",
-        "check-out": "Tan ca",
-        "break": "Bắt đầu giải lao",
-        "break-done": "Kết thúc giải lao",
-        "check-in-again": "Vào làm việc lại sau sự cố"
-      };
-      const reason = eventStatusMap[eventType] || "";
-      const logData = {
-        account_id: accountId, // Sử dụng account_id đúng
-        status: eventType,
-        reason: reason,  // Lý do cho sự kiện
-        created_at: timestamp,
+        "check-in": "checkin",
+        "check-out": "checkout",
+        "break": "break_start",
+        "break-done": "break_end",
+        "check-in-again": "check in again"
       };
 
-      chrome.runtime.sendMessage({ command: "logEvent", data: logData }, (response) => {
+
+
+      let targetCommand;
+      if (["break", "break-done"].includes(eventType)) {
+        targetCommand = "logBreak";
+      } else if (["check-in", "check-out"].includes(eventType)) {
+        targetCommand = "logWork";
+      } else if (eventType === "check-in-again") {
+        targetCommand = "logIncident";
+      } else {
+        console.warn("❗ Unknown eventType:", eventType);
+        return; // hoặc handle riêng
+      }
+
+      const logData = {
+        account_id: accountId,
+        status: eventStatusMap[eventType],
+        reason: reason,
+        created_at: timestamp
+      };
+
+      chrome.runtime.sendMessage({ command: targetCommand, data: logData }, (response) => {
         if (response.success) {
           console.log("Event log success:", response);
-          // Start screenshot after check-in
-          if (eventType === "check-in") {
-            startAutoScreenshot(20); // Bắt đầu tự chụp màn hình sau khi check-in
+
+          let nextState = currentState;
+          switch (eventType) {
+            case "check-in":
+              nextState = "checked-in";
+              startAutoScreenshot(20);
+              break;
+            case "check-out":
+              nextState = "checked-out";
+              stopAutoScreenshot();
+              break;
+            case "break":
+              nextState = "on-break";
+              break;
+            case "break-done":
+              nextState = "checked-in";
+              break;
           }
+
+          chrome.storage.local.set({ currentState: nextState }, () => {
+            updateButtonStates(nextState);
+          });
+
         } else {
           console.error("Event log failed:", response.error);
         }
