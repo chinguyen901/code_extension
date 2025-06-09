@@ -1,14 +1,18 @@
 let intervalId = null;
-let isPaused = false;
-let send_Sudden = false;
-let time_focus = 0;
 let warnedDueToInactivity = false; // ✅ THÊM VÀO
-let suddenTimeoutId = null;        // ✅ THÊM VÀO
-const time_limit = 600;
+let previousStatus = null;
+let suddenTimeoutId = null; // ✅ THÊM VÀO
 let ws = null;
 const pendingMessages = [];
 
 const WS_URL = "wss://chromextension-production.up.railway.app";
+
+// setInterval(() => {
+//   if (ws && ws.readyState === WebSocket.OPEN) {
+//     console.log("Sending ping to keep WebSocket open");
+//     ws.send(JSON.stringify({ type: "ping" }));
+//   }
+// }, 10000);
 
 function getLocalStorage(key) {
   return new Promise((resolve) => {
@@ -40,18 +44,14 @@ function initWebSocket() {
   ws.onmessage = async (event) => {
     const msg = JSON.parse(event.data);
     if (msg.type === 'ping') {
-      const isActive = await checkTabActive();
-      if (isActive) {
-        const account_id = await getLocalStorage("account_id");
-        const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
-        safeSend(JSON.stringify({
-          type: "pong",
-          account_id,
-          created_at: timestamp
-        }));
-      } else {
-        console.log("⚠️ Tab không active - không phản hồi pong");
-      }
+      console.log("Received ping from server");
+      const account_id = await getLocalStorage("account_id");
+      const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+      safeSend({
+        type: "pong",
+        account_id,
+        created_at: timestamp
+      });
     }
   };
 }
@@ -69,9 +69,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "stop":
       clearInterval(intervalId);
       intervalId = null;
-      isPaused = false;
-      send_Sudden = false;
-      time_focus = 0;
       warnedDueToInactivity = false;
       if (suddenTimeoutId) {
         clearTimeout(suddenTimeoutId);
@@ -81,8 +78,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     case "checkin-again-done":
       warnedDueToInactivity = false;
-      time_focus = 0;
-      isPaused = false;
       if (suddenTimeoutId) {
         clearTimeout(suddenTimeoutId);
         suddenTimeoutId = null;
@@ -96,34 +91,66 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 async function handleScreenshot() {
-  chrome.tabs.captureVisibleTab({ format: "png" }, async (dataUrl) => {
-    if (chrome.runtime.lastError || !dataUrl) return;
-    try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      const hash = await hashScreenshot(blob);
-      const accountId = await getLocalStorage("account_id");
-      const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const accountId = await getLocalStorage("account_id");
+  const isActive = await checkTabActive();
 
+  // Nếu trạng thái thay đổi (active -> noactive hoặc noactive -> active)
+  if (isActive !== previousStatus) {
+    // Chỉ gửi "noactive" nếu tab trước đó là active
+    if (!isActive && previousStatus === true) {
       safeSend(JSON.stringify({
-        type: "log-screenshot",
+        type: "log-distraction",
         account_id: accountId,
-        hash,
-        created_at: timestamp
+        status: "NO_ACTIVE",
+        note: "NO WORK ON TAB",
+        created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
       }));
-
-      chrome.downloads.download({
-        url: dataUrl,
-        filename: `screenshots/screenshot_${Date.now()}.png`,
-        conflictAction: "uniquify",
-        saveAs: false,
-      });
-    } catch (err) {
-      console.error("Screenshot error:", err);
     }
-  });
-}
 
+    // Chỉ gửi "active" nếu tab trước đó là inactive
+    if (isActive && previousStatus === false) {
+      safeSend(JSON.stringify({
+        type: "log-distraction",
+        account_id: accountId,
+        status: "ACTIVE",
+        note: 0, 
+        created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
+      }));
+    }
+
+    // Cập nhật trạng thái trước đó
+    previousStatus = isActive;
+  }
+
+  if (isActive) {
+    // Nếu tab đang active, thực hiện chụp ảnh
+    chrome.tabs.captureVisibleTab({ format: "png" }, async (dataUrl) => {
+      if (chrome.runtime.lastError || !dataUrl) return;
+      try {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const hash = await hashScreenshot(blob);
+        const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+  
+        safeSend(JSON.stringify({
+          type: "log-screenshot",
+          account_id: accountId,
+          hash,
+          created_at: timestamp
+        }));
+  
+        chrome.downloads.download({
+          url: dataUrl,
+          filename: `screenshots/screenshot_${Date.now()}.png`,
+          conflictAction: "uniquify",
+          saveAs: false,
+        });
+      } catch (err) {
+        console.error("Screenshot error:", err);
+      }
+    });
+  }
+}
 
 function checkTabActive() {
   return new Promise((resolve) => {

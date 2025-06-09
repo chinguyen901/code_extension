@@ -1,5 +1,6 @@
 let ws;
 const pendingMessages = [];
+const checkinStatus = new Map();
 
 window.addEventListener("DOMContentLoaded", () => {
   const loginSection = document.getElementById("login-section");
@@ -105,6 +106,19 @@ window.addEventListener("DOMContentLoaded", () => {
     ws.onmessage = async (event) => {
       const data = JSON.parse(event.data);
 
+      if (data.type === "ping") {
+          console.log("Ping received, sending pong...");
+
+          // Bỏ qua kiểm tra tab active, luôn gửi pong khi nhận ping
+          const account_id = await getLocalStorage("account_id");
+          const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+          safeSend({
+            type: "pong",
+            account_id,
+            created_at: timestamp
+          });
+        }
+
       if (data.success && data.name && data.id) {
         const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
         safeSend({ type: "log-loginout", account_id: data.id, status: "login", created_at: timestamp });
@@ -117,19 +131,19 @@ window.addEventListener("DOMContentLoaded", () => {
         showLoggedInUI(data.name);
         actionsDiv.style.display = "block";
         updateButtonStates("checked-out");
+
+        // Set checkinStatus when login is successful
+        checkinStatus.set(data.id, true);  // Now track that the user is checked in
         return;
       }
 
       if (data.type === "force-checkin") {
-    // Hiển thị thông báo hệ thống
         showSystemNotification("SUDDEN - Checkin lại", data.message || "Bạn cần Check In lại để tiếp tục làm việc");
-
-        // ... phần xử lý như cũ:
         stopAutoScreenshot();
         await chrome.storage.local.set({ currentState: "force-checkin" });
         updateButtonStates("force-checkin");
         return;
-        }
+      }
 
       if (data.success && data.type) {
         let nextState;
@@ -265,7 +279,6 @@ function safeSend(payload) {
   }
 }
 
-
 function showSystemNotification(title, message) {
   chrome.notifications.create({
     type: "basic",
@@ -273,5 +286,11 @@ function showSystemNotification(title, message) {
     title,
     message,
     priority: 2
+  });
+}
+
+async function getLocalStorage(key) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(key, (result) => resolve(result[key]));
   });
 }
