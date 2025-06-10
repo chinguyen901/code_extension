@@ -1,18 +1,11 @@
 let intervalId = null;
-let warnedDueToInactivity = false; // ✅ THÊM VÀO
+let warnedDueToInactivity = false;
 let previousStatus = null;
-let suddenTimeoutId = null; // ✅ THÊM VÀO
+let suddenTimeoutId = null;
 let ws = null;
 const pendingMessages = [];
 
-const WS_URL = "wss://chromextension-production.up.railway.app";
-
-// setInterval(() => {
-//   if (ws && ws.readyState === WebSocket.OPEN) {
-//     console.log("Sending ping to keep WebSocket open");
-//     ws.send(JSON.stringify({ type: "ping" }));
-//   }
-// }, 10000);
+const WS_URL = "wss://chromextension-production.up.railway.app?source=background";
 
 function getLocalStorage(key) {
   return new Promise((resolve) => {
@@ -27,10 +20,25 @@ async function hashScreenshot(blob) {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function initWebSocket() {
+function safeSend(payload) {
+  // Payload phải là object, convert ở đây
+  const message = typeof payload === 'string' ? payload : JSON.stringify(payload);
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(message);
+  } else {
+    console.warn("❌ WebSocket not open. Queuing message.");
+    pendingMessages.push(message);
+  }
+}
+
+function reconnectWebSocket() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  
+  console.log("🔄 Reconnecting WebSocket...");
   ws = new WebSocket(WS_URL);
 
-  ws.onopen = () => {
+  ws.onopen = async () => {
     console.log("✅ WebSocket connected (background.js)");
     while (pendingMessages.length > 0) {
       const msg = pendingMessages.shift();
@@ -39,24 +47,105 @@ function initWebSocket() {
   };
 
   ws.onerror = (err) => console.error("❌ WebSocket error:", err);
-  ws.onclose = () => console.warn("⚠️ WebSocket disconnected");
+
+  ws.onclose = () => {
+    console.warn("⚠️ WebSocket disconnected, retrying in 3s...");
+    setTimeout(reconnectWebSocket, 3000);
+  };
 
   ws.onmessage = async (event) => {
-    const msg = JSON.parse(event.data);
-    if (msg.type === 'ping') {
-      console.log("Received ping from server");
-      const account_id = await getLocalStorage("account_id");
-      const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
-      safeSend({
-        type: "pong",
-        account_id,
-        created_at: timestamp
-      });
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'ping') {
+        console.log("Received ping from server");
+        const account_id = await getLocalStorage("account_id");
+        if (!account_id) {
+          console.warn("⚠️ No account_id in localStorage, can't send pong");
+          return;
+        }
+        const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+        safeSend({
+          type: "pong",
+          account_id,
+          created_at: timestamp
+        });
+      }
+    } catch (err) {
+      console.error("❌ Error handling WebSocket message:", err);
     }
   };
 }
 
-initWebSocket();
+async function handleScreenshot() {
+  const accountId = await getLocalStorage("account_id");
+  if (!accountId) {
+    console.warn("⚠️ No account_id found, skipping screenshot.");
+    return;
+  }
+  const isActive = await checkTabActive();
+
+  if (isActive !== previousStatus) {
+    if (!isActive && previousStatus === true) {
+      safeSend({
+        type: "log-distraction",
+        account_id: accountId,
+        status: "NO_ACTIVE",
+        note: "NO WORK ON TAB",
+        created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
+      });
+    }
+
+    if (isActive && previousStatus === false) {
+      safeSend({
+        type: "log-distraction",
+        account_id: accountId,
+        status: "ACTIVE",
+        note: 0,
+        created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
+      });
+    }
+    previousStatus = isActive;
+  }
+
+  if (isActive) {
+    chrome.tabs.captureVisibleTab({ format: "png" }, async (dataUrl) => {
+      if (chrome.runtime.lastError || !dataUrl) return;
+      try {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const hash = await hashScreenshot(blob);
+
+        safeSend({
+          type: "log-screenshot",
+          account_id: accountId,
+          hash,
+          created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
+        });
+
+        // Nếu không cần tải về file local thì có thể comment đoạn này lại
+        chrome.downloads.download({
+          url: dataUrl,
+          filename: `screenshots/screenshot_${Date.now()}.png`,
+          conflictAction: "uniquify",
+          saveAs: false,
+        });
+      } catch (err) {
+        console.error("❌ Screenshot processing error:", err);
+      }
+    });
+  }
+}
+
+function checkTabActive() {
+  return new Promise((resolve) => {
+    chrome.windows.getCurrent({ populate: true }, (window) => {
+      if (!window) return resolve(false);
+      const activeTab = window.tabs.find(tab => tab.active);
+      if (!activeTab) return resolve(false);
+      chrome.windows.get(window.id, (win) => resolve(win.focused));
+    });
+  });
+}
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.command) {
@@ -90,86 +179,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-async function handleScreenshot() {
-  const accountId = await getLocalStorage("account_id");
-  const isActive = await checkTabActive();
-
-  // Nếu trạng thái thay đổi (active -> noactive hoặc noactive -> active)
-  if (isActive !== previousStatus) {
-    // Chỉ gửi "noactive" nếu tab trước đó là active
-    if (!isActive && previousStatus === true) {
-      safeSend(JSON.stringify({
-        type: "log-distraction",
-        account_id: accountId,
-        status: "NO_ACTIVE",
-        note: "NO WORK ON TAB",
-        created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
-      }));
-    }
-
-    // Chỉ gửi "active" nếu tab trước đó là inactive
-    if (isActive && previousStatus === false) {
-      safeSend(JSON.stringify({
-        type: "log-distraction",
-        account_id: accountId,
-        status: "ACTIVE",
-        note: 0, 
-        created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
-      }));
-    }
-
-    // Cập nhật trạng thái trước đó
-    previousStatus = isActive;
-  }
-
-  if (isActive) {
-    // Nếu tab đang active, thực hiện chụp ảnh
-    chrome.tabs.captureVisibleTab({ format: "png" }, async (dataUrl) => {
-      if (chrome.runtime.lastError || !dataUrl) return;
-      try {
-        const res = await fetch(dataUrl);
-        const blob = await res.blob();
-        const hash = await hashScreenshot(blob);
-        const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
-  
-        safeSend(JSON.stringify({
-          type: "log-screenshot",
-          account_id: accountId,
-          hash,
-          created_at: timestamp
-        }));
-  
-        chrome.downloads.download({
-          url: dataUrl,
-          filename: `screenshots/screenshot_${Date.now()}.png`,
-          conflictAction: "uniquify",
-          saveAs: false,
-        });
-      } catch (err) {
-        console.error("Screenshot error:", err);
-      }
-    });
-  }
-}
-
-function checkTabActive() {
-  return new Promise((resolve) => {
-    chrome.windows.getCurrent({ populate: true }, (window) => {
-      if (!window) return resolve(false);
-      const activeTab = window.tabs.find(tab => tab.active);
-      if (!activeTab) return resolve(false);
-      chrome.windows.get(window.id, (win) => resolve(win.focused));
-    });
-  });
-}
-
-function safeSend(payload) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(payload);
-  } else {
-    if (ws.readyState === WebSocket.CLOSED) {
-      console.warn("❌ WebSocket CLOSED. Queued message.");
-    }
-    pendingMessages.push(payload);
-  }
-}
+// Khởi tạo WebSocket khi background chạy
+reconnectWebSocket();

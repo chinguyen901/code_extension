@@ -88,13 +88,14 @@ window.addEventListener("DOMContentLoaded", () => {
       created_at: timestamp,
       request_id: "RQ" + Date.now()
     };
+    ws.isCheckout = true;
     safeSend(payload);
   });
 
   connectWebSocket();
 
   function connectWebSocket() {
-    ws = new WebSocket("wss://chromextension-production.up.railway.app");
+    ws = new WebSocket("wss://chromextension-production.up.railway.app?source=popup");
 
     ws.onopen = () => {
       wsStatus.textContent = "🟢 Kết nối server thành công";
@@ -105,19 +106,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
     ws.onmessage = async (event) => {
       const data = JSON.parse(event.data);
-
-      if (data.type === "ping") {
-          console.log("Ping received, sending pong...");
-
-          // Bỏ qua kiểm tra tab active, luôn gửi pong khi nhận ping
-          const account_id = await getLocalStorage("account_id");
-          const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
-          safeSend({
-            type: "pong",
-            account_id,
-            created_at: timestamp
-          });
-        }
 
       if (data.success && data.name && data.id) {
         const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
