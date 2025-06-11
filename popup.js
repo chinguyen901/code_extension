@@ -3,21 +3,22 @@ const pendingMessages = [];
 const checkinStatus = new Map();
 
 window.addEventListener("DOMContentLoaded", () => {
+  // DOM elements
   const loginSection = document.getElementById("login-section");
   const userInfo = document.getElementById("user-info");
   const controls = document.getElementById("controls");
+
+  // WebSocket status hiển thị
   const wsStatus = document.createElement("div");
   wsStatus.id = "ws-status";
-  wsStatus.style.marginTop = "5px";
-  wsStatus.style.fontSize = "12px";
-  wsStatus.style.color = "gray";
+  wsStatus.style = "margin-top: 5px; font-size: 12px; color: gray;";
   controls.appendChild(wsStatus);
 
+  // Tạo action buttons nếu chưa có
   const actionsDiv = document.getElementById("actions") || (() => {
     const div = document.createElement("div");
     div.id = "actions";
-    div.style.display = "none";
-    div.style.marginTop = "10px";
+    div.style = "display: none; margin-top: 10px;";
     const buttons = [
       { event: "check-in", label: "Check In" },
       { event: "check-out", label: "Check Out" },
@@ -28,7 +29,7 @@ window.addEventListener("DOMContentLoaded", () => {
     buttons.forEach(({ event, label }) => {
       const btn = document.createElement("button");
       btn.textContent = label;
-      btn.setAttribute("data-event", event);
+      btn.dataset.event = event;
       btn.style.marginRight = "5px";
       btn.disabled = true;
       div.appendChild(btn);
@@ -37,8 +38,9 @@ window.addEventListener("DOMContentLoaded", () => {
     return div;
   })();
 
-  chrome.storage.local.get(["employeeName", "currentState", "account_id"], (result) => {
-    const { employeeName, currentState = "checked-out", account_id } = result;
+  // Load thông tin từ storage
+  chrome.storage.local.get(["employeeName", "currentState", "account_id"], (res) => {
+    const { employeeName, currentState = "checked-out", account_id } = res;
     if (employeeName && account_id) {
       showLoggedInUI(employeeName);
       actionsDiv.style.display = "block";
@@ -46,9 +48,10 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  actionsDiv.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const eventType = button.getAttribute("data-event");
+  // Lắng nghe click của các action button
+  actionsDiv.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const eventType = btn.dataset.event;
       if (eventType === "check-in-again") {
         const { value: reason } = await Swal.fire({
           title: "Lý do vào làm lại",
@@ -65,6 +68,7 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  // Đăng nhập
   document.getElementById("login-button").addEventListener("click", () => {
     const username = document.getElementById("employee-username").value.trim();
     const password = document.getElementById("employee-password").value.trim();
@@ -72,6 +76,7 @@ window.addEventListener("DOMContentLoaded", () => {
     safeSend({ type: "login", username, password });
   });
 
+  // Logout
   document.getElementById("logout-button").addEventListener("click", async () => {
     const { currentState, account_id } = await chrome.storage.local.get(["currentState", "account_id"]);
     if (currentState !== "checked-out") return Swal.fire("⚠️ Vui lòng check-out trước khi logout.");
@@ -92,6 +97,7 @@ window.addEventListener("DOMContentLoaded", () => {
     safeSend(payload);
   });
 
+  // Kết nối WebSocket
   connectWebSocket();
 
   function connectWebSocket() {
@@ -99,14 +105,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
     ws.onopen = () => {
       wsStatus.textContent = "🟢 Kết nối server thành công";
-      while (pendingMessages.length > 0) {
-        ws.send(pendingMessages.shift());
-      }
+      while (pendingMessages.length > 0) ws.send(pendingMessages.shift());
     };
 
     ws.onmessage = async (event) => {
       const data = JSON.parse(event.data);
 
+      // Xử lý login thành công
       if (data.success && data.name && data.id) {
         const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
         safeSend({ type: "log-loginout", account_id: data.id, status: "login", created_at: timestamp });
@@ -119,67 +124,60 @@ window.addEventListener("DOMContentLoaded", () => {
         showLoggedInUI(data.name);
         actionsDiv.style.display = "block";
         updateButtonStates("checked-out");
-
-        // Set checkinStatus when login is successful
-        checkinStatus.set(data.id, true);  // Now track that the user is checked in
+        checkinStatus.set(data.id, true); // đánh dấu user đã checkin
         return;
       }
 
+      // Force check-in lại nếu server yêu cầu
       if (data.type === "force-checkin") {
-        showSystemNotification("SUDDEN - Checkin lại", data.message || "Bạn cần Check In lại để tiếp tục làm việc");
+        showSystemNotification("SUDDEN - Checkin lại", data.message || "Bạn cần Check In lại");
         stopAutoScreenshot();
         await chrome.storage.local.set({ currentState: "force-checkin" });
         updateButtonStates("force-checkin");
         return;
       }
 
+      // Xử lý sự kiện khác từ server
       if (data.success && data.type) {
-        let nextState;
-        switch (data.type) {
-          case "checkin":
-            nextState = "checked-in";
-            startAutoScreenshot(20);
-            break;
-          case "checkout":
-            nextState = "checked-out";
-            chrome.runtime.sendMessage({ command: "stop" });
-            break;
-          case "break_start":
-            nextState = "on-break";
-            chrome.runtime.sendMessage({ command: "stop" });
-            break;
-          case "break_end":
-            nextState = "checked-in";
-            startAutoScreenshot(20);
-            break;
-          case "log-loginout":
-            if (data.status === "logout") {
-              chrome.runtime.sendMessage({ command: "stop" });
-              await chrome.storage.local.clear();
-              Swal.fire("Logout thành công.").then(() => location.reload());
-              return;
-            }
-            break;
-          case "check in again":
-            nextState = "checked-in";
-            startAutoScreenshot(20);
-            chrome.runtime.sendMessage({ command: "checkin-again-done" });
-            break;
+        const stateMap = {
+          "checkin": "checked-in",
+          "checkout": "checked-out",
+          "break_start": "on-break",
+          "break_end": "checked-in",
+          "check in again": "checked-in"
+        };
+
+        const commands = {
+          "checkin": "start",
+          "checkout": "stop",
+          "break_start": "stop",
+          "break_end": "start",
+          "check in again": "checkin-again-done"
+        };
+
+        if (data.type === "log-loginout" && data.status === "logout") {
+          chrome.runtime.sendMessage({ command: "stop" });
+          await chrome.storage.local.clear();
+          return Swal.fire("Logout thành công.").then(() => location.reload());
         }
 
-        if (nextState) {
-          await chrome.storage.local.set({ currentState: nextState });
-          updateButtonStates(nextState);
+        const newState = stateMap[data.type];
+        if (newState) {
+          await chrome.storage.local.set({ currentState: newState });
+          updateButtonStates(newState);
+
+          const command = commands[data.type];
+          if (command) {
+            if (command === "start") startAutoScreenshot(15);
+            else chrome.runtime.sendMessage({ command });
+          }
         }
       }
 
       if (!data.success && data.error) Swal.fire(data.error, "", "error");
     };
 
-    ws.onerror = () => {
-      wsStatus.textContent = "🔴 WebSocket lỗi kết nối";
-    };
-
+    ws.onerror = () => wsStatus.textContent = "🔴 WebSocket lỗi kết nối";
     ws.onclose = () => {
       wsStatus.textContent = "🔴 Mất kết nối, đang thử lại...";
       setTimeout(connectWebSocket, 5000);
@@ -196,12 +194,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function updateButtonStates(state) {
     actionsDiv.querySelectorAll("button").forEach(btn => btn.disabled = true);
-    switch (state) {
-      case "checked-out": enable("check-in"); break;
-      case "checked-in": enable("check-out"); enable("break"); break;
-      case "on-break": enable("break-done"); break;
-      case "force-checkin": enable("check-in-again"); break;
-    }
+    const stateButtons = {
+      "checked-out": ["check-in"],
+      "checked-in": ["check-out", "break"],
+      "on-break": ["break-done"],
+      "force-checkin": ["check-in-again"]
+    };
+    (stateButtons[state] || []).forEach(enable);
     document.getElementById("logout-button").disabled = (state !== "checked-out");
   }
 
@@ -226,59 +225,52 @@ window.addEventListener("DOMContentLoaded", () => {
     };
     if (disallowed[eventType]) return Swal.fire("Không hợp lệ logic thao tác.");
 
-    const eventStatusMap = {
-      "check-in": "checkin",
-      "check-out": "checkout",
-      "break": "break_start",
-      "break-done": "break_end",
-      "check-in-again": "check in again"
-    };
-    const typeMap = {
-      "check-in": "log-work",
-      "check-out": "log-work",
-      "break": "log-break",
-      "break-done": "log-break",
-      "check-in-again": "log-incident"
+    const payload = {
+      type: {
+        "check-in": "log-work",
+        "check-out": "log-work",
+        "break": "log-break",
+        "break-done": "log-break",
+        "check-in-again": "log-incident"
+      }[eventType],
+      account_id,
+      status: {
+        "check-in": "checkin",
+        "check-out": "checkout",
+        "break": "break_start",
+        "break-done": "break_end",
+        "check-in-again": "check in again"
+      }[eventType],
+      created_at: timestamp,
+      ...(reason && { reason })
     };
 
-    const payload = {
-      type: typeMap[eventType],
-      account_id,
-      status: eventStatusMap[eventType],
-      created_at: timestamp
-    };
-    if (reason) payload.reason = reason;
     safeSend(payload);
   }
 });
 
+// Gửi WebSocket an toàn (queue nếu chưa kết nối)
 function safeSend(payload) {
   try {
-    const str = typeof payload === "string" ? payload : JSON.stringify(payload);
+    const message = typeof payload === "string" ? payload : JSON.stringify(payload);
     if (!payload.type) return Swal.fire("❌ Không thể gửi: thiếu `type`.");
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(str);
-    } else {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(message);
+    else {
       console.warn("🔴 WebSocket chưa sẵn sàng:", ws?.readyState);
-      pendingMessages.push(str);
+      pendingMessages.push(message);
     }
   } catch (err) {
     console.error("❌ Gửi WebSocket lỗi:", err.message);
   }
 }
 
+// Hiển thị thông báo hệ thống
 function showSystemNotification(title, message) {
   chrome.notifications.create({
     type: "basic",
-    iconUrl: "bell.png", // Đảm bảo file này có trong thư mục extension
+    iconUrl: "bell.png",
     title,
     message,
     priority: 2
-  });
-}
-
-async function getLocalStorage(key) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(key, (result) => resolve(result[key]));
   });
 }
