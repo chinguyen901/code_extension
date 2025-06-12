@@ -9,7 +9,8 @@
     "scripting",
     "downloads",
     "notifications",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -19,6 +20,17 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Employee Monitor"
-  }
+    "default_title": "Employee Monitor",
+    "default_icon": "icon.png"
+  },
+  "icons": {
+    "48": "images/bell.png",
+    "32": "icon.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["images/bell.png"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
