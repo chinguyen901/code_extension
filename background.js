@@ -8,22 +8,6 @@ const pendingMessages = [];
 
 const WS_URL = "wss://chromextension-production.up.railway.app?source=background";
 
-// ===== WebSocket giữ kết nối định kỳ =====
-// setInterval(async () => {
-//   if (ws && ws.readyState === WebSocket.OPEN) {
-//     const account_id = await getLocalStorage("account_id");
-//     if (!account_id) return;
-
-//     ws.send(JSON.stringify({
-//       type: "pong",
-//       account_id,
-//       created_at: new Date().toISOString().slice(0, 19).replace("T", " ")
-//     }));
-
-//     console.log("📡 Sent keepalive pong manually");
-//   }
-// }, 10000); // 10 giây
-
 // ===== Hàm trợ giúp =====
 function getLocalStorage(key) {
   return new Promise((resolve) => {
@@ -42,30 +26,51 @@ async function hashScreenshot(blob) {
 function initWebSocket() {
   ws = new WebSocket(WS_URL);
 
-  ws.onopen = () => {
+  // ws.onopen = () => {
+  //   console.log("✅ WebSocket connected (background.js)");
+  //   while (pendingMessages.length > 0) {
+  //     ws.send(pendingMessages.shift());
+  //   }
+  // };
+  ws.onopen = async () => {
     console.log("✅ WebSocket connected (background.js)");
+
+    // Gửi các message tồn trước đó (không liên quan đến authenticate)
     while (pendingMessages.length > 0) {
       ws.send(pendingMessages.shift());
+    }
+
+    // 🆔 Thêm đoạn này:
+    const accountId = await getLocalStorage("account_id");
+    if (accountId) {
+      ws.send(JSON.stringify({
+        type: "authenticate",
+        account_id: accountId
+      }));
+      console.log(`📤 Sent authenticate for account_id=${accountId}`);
     }
   };
 
   ws.onerror = (err) => console.error("❌ WebSocket error:", err);
   ws.onclose = () => console.warn("⚠️ WebSocket disconnected");
 
-  // ws.onmessage = async (event) => {
-  //   const msg = JSON.parse(event.data);
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'force-checkin') {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('images/bell.png'),
+        title: '⚠️ Check In Again',
+        message: msg.message,
+        priority: 2
+      });
+      // Thiết lập state để popup có thể đọc
+      chrome.storage.local.set({ currentState: 'force-checkin' });
+      // Gửi message nếu popup đang mở
+      chrome.runtime.sendMessage({ type: 'force-checkin', message: msg.message }).catch(() => {});
+    }
+  };
 
-  //   // Server gửi ping → phản hồi lại bằng pong
-  //   if (msg.type === 'ping') {
-  //     const account_id = await getLocalStorage("account_id");
-  //     const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
-  //     safeSend({
-  //       type: "pong",
-  //       account_id,
-  //       created_at: timestamp
-  //     });
-  //   }
-  // };
 }
 
 // Gọi khởi tạo WebSocket ngay khi load
@@ -76,13 +81,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.command) {
     case "start":
       if (intervalId) clearInterval(intervalId);
+      previousStatus = true;
       handleScreenshot(); // chụp ngay lần đầu
       intervalId = setInterval(handleScreenshot, msg.interval * 1000);
       sendResponse({ success: true });
       return true;
-
-    case "stop":
     case "checkin-again-done":
+      console.log('ℹ️ Received checkin-again-done from popup, restarting screenshots');
+    // dừng interval nếu đang chạy
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+      // khởi động lại với tần suất mong muốn
+      const intervalSec = msg.interval || 15; 
+      intervalId = setInterval(handleScreenshot, intervalSec * 1000);
+      sendResponse({ success: true });
+      return true;
+    case "stop":
       clearInterval(intervalId);
       intervalId = null;
       warnedDueToInactivity = false;
@@ -90,6 +106,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         clearTimeout(suddenTimeoutId);
         suddenTimeoutId = null;
       }
+      sendResponse({ success: true });
+      return true;
+    case "update-badge":
+      updateBadge(msg.state);
       sendResponse({ success: true });
       return true;
 
@@ -107,10 +127,8 @@ async function handleScreenshot() {
   // Gửi log nếu trạng thái có thay đổi (hoạt động <=> không hoạt động)
   if (isActive !== previousStatus) {
     const timestamp = new Date().toISOString().slice(0, 19).replace("T", " ");
-    const logType = {
-      true: { status: "ACTIVE", note: "0" },
-      false: { status: "NO_ACTIVE", note: "NO WORK ON TAB" }
-    }[isActive];
+    const logType = isActive ? { status: "ACTIVE", note: "0" }
+                          : { status: "NO_ACTIVE", note: "NO WORK ON TAB" };
 
     safeSend(JSON.stringify({
       type: "log-distraction",
@@ -194,3 +212,44 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
   }
 });
+
+
+// function sendNotification(content) {
+//   chrome.notifications.create({
+//     type: "basic",
+//     iconUrl: chrome.runtime.getURL("images/bell.png"),
+//     title: "⚠️ Check In Again",
+//     message: content,
+//     priority: 2
+//   });
+// }
+function updateBadge(state) {
+  let color = "#000000";
+  let text = "";
+
+  switch (state) {
+    case "break_end":
+    case "checkin":
+      color = "#00cc00"; // xanh
+      text = "IN";
+      break;
+    case "checkout":
+      color = "#000000"; // đen
+      text = "OUT";
+      break;
+    case "break_start":
+      color = "#ffcc00"; // vàng
+      text = "BR";
+      break;
+    case "check in again":
+      color = "#ff0000"; // đỏ
+      text = "!";
+      break;
+    default:
+      color = "#999999";
+      text = "?";
+  }
+
+  chrome.action.setBadgeBackgroundColor({ color });
+  chrome.action.setBadgeText({ text });
+}
